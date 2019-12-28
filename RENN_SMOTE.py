@@ -12,7 +12,8 @@ from sklearn.utils import check_X_y
 from imblearn.base import BaseSampler
 from imblearn.over_sampling import BorderlineSMOTE
 from imblearn.over_sampling.base import BaseOverSampler
-#from imblearn.under_sampling import EditedNearestNeighbours
+from imblearn.combine import SMOTEENN
+# from imblearn.under_sampling import EditedNearestNeighbours
 from imblearn.under_sampling import RepeatedEditedNearestNeighbours
 from imblearn.utils import check_target_type
 from imblearn.utils import Substitution
@@ -22,10 +23,12 @@ from sklearn import svm
 
 import warnings
 from sklearn.pipeline import make_pipeline
+
 warnings.filterwarnings("ignore")
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import numpy as np
+
 
 @Substitution(
     sampling_strategy=BaseOverSampler._sampling_strategy_docstring,
@@ -96,12 +99,12 @@ class RENN_BSMOTE(BaseSampler):
     _sampling_type = "over-sampling"
 
     def __init__(
-        self,
-        sampling_strategy="auto",
-        random_state=None,
-        smote=None,
-        enn=None,
-        n_jobs=None,
+            self,
+            sampling_strategy="auto",
+            random_state=None,
+            smote=None,
+            enn=None,
+            n_jobs=None,
     ):
         super().__init__()
         self.sampling_strategy = sampling_strategy
@@ -151,36 +154,99 @@ class RENN_BSMOTE(BaseSampler):
         X_res, y_res = self.smote_.fit_resample(X, y)
         return self.enn_.fit_resample(X_res, y_res)
 
+
 def Load_hayes_roth_dataset(path):
-    #将1,2类划分为一类（102）,3划分为一类（30），共132个样本
-    #1: 97, -1: 94
-    x=[]
-    y=[]
+    # 将1,2类划分为一类（102）,3划分为一类（30），共132个样本
+    # 1: 97, -1: 94
+    x = []
+    y = []
     with open(path) as f:
         for eachline in f:
-            datas=eachline.split(',')
+            datas = eachline.split(',')
             x.append([int(i) for i in datas[2:5]])
-            y.append(1 if datas[5][0]!='3' else -1)
-            #y.append(int(datas[5][0]))
-    return x,y
-X, y=Load_hayes_roth_dataset('./datasets/hayes-roth.data')
+            y.append(1 if datas[5][0] != '3' else -1)
+            # y.append(int(datas[5][0]))
+    return x, y
+
+def ues_RENN_BSMOTE(X,y):
+    sme = RENN_BSMOTE(random_state=10,enn=RepeatedEditedNearestNeighbours(n_neighbors=20,max_iter=100))
+    print('Original dataset shape %s' % Counter(y))
+    X_res, y_res = sme.fit_resample(X, y)
+    print('Resampled dataset shape %s' % Counter(y_res))
+    x_train, x_test, y_train, y_test = train_test_split(X_res, y_res,test_size=0.1)
+    clf_rbf = svm.SVC(C=10, gamma=5, shrinking=True).fit(x_train, y_train)
+    return clf_rbf,x_test,y_test
+
+def only_RepeatedEditedNearestNeighbours(X,y):
+    print('Original dataset shape %s' % Counter(y))
+    sme = RepeatedEditedNearestNeighbours(n_neighbors=20,max_iter=100)
+    X_res, y_res = sme.fit_resample(X, y)
+    print('Resampled dataset shape %s' % Counter(y_res))
+    x_train, x_test, y_train, y_test = train_test_split(X_res, y_res,test_size=0.1)
+    clf_rbf = svm.SVC(C=10, gamma=5).fit(x_train, y_train)
+    return clf_rbf, x_test, y_test
+
+def only_BorderlineSMOTE(X,y):
+    sme = BorderlineSMOTE(random_state=10)
+    print('Original dataset shape %s' % Counter(y))
+    X_res, y_res = sme.fit_resample(X, y)
+    print('Resampled dataset shape %s' % Counter(y_res))
+    x_train, x_test, y_train, y_test = train_test_split(X_res, y_res)
+    clf_rbf = svm.SVC(C=10, gamma=5).fit(x_train, y_train)
+    return clf_rbf, x_test, y_test
+
+def none_RENN_BSMOTE(X,y):
+    print('Original dataset shape %s' % Counter(y))
+    x_train, x_test, y_train, y_test = train_test_split(X, y)
+    clf_rbf = svm.SVC(C=10, gamma=5).fit(x_train, y_train)
+    return clf_rbf, x_test, y_test
+
+X, y = Load_hayes_roth_dataset('./datasets/hayes-roth.data')
 x_train, x_test, y_train, y_test = train_test_split(X, y)
-# X, y = make_classification(n_classes=2, class_sep=2,
-# weights=[0.2, 0.8], n_informative=3, n_redundant=1, flip_y=0,
-# n_features=20, n_clusters_per_class=1, n_samples=1000, random_state=10)
-print('Original dataset shape %s' % Counter(y))
-sme = RENN_BSMOTE(random_state=42)
-X_res, y_res = sme.fit_resample(x_train, y_train)
-print('Resampled dataset shape %s' % Counter(y_res))
-clf_rbf= svm.SVC(C=10,gamma=5,shrinking=True).fit(X_res, y_res)
-#print(clf_rbf)
-pre_ret=clf_rbf.predict(x_test)
-print(pre_ret)
-index=0
-countRight=0
-countAll=len(pre_ret)
-for ret in pre_ret:
-    if ret==y_test[index]:
-        countRight=countRight+1
-    index=index+1
-print(float(countRight)/countAll)
+
+epoch=10
+precison_total=0
+precalls_total=0
+f1_score_total=0
+g_means_total=0
+for i in range(epoch):
+    print('Original dataset shape %s' % Counter(y))
+    clf_rbf,x_test,y_test=ues_RENN_BSMOTE(X,y)
+    pre_ret = clf_rbf.predict(x_test)
+    #print(pre_ret)
+    index = 0
+    TP = 0
+    FP = 0
+    FN = 0
+    TN = 0
+    for ret in pre_ret:
+        if (ret == 1):
+            if ret == y_test[index]:
+                TP = TP + 1
+            else:
+                FP = FP + 1
+        else:
+            if ret == y_test[index]:
+                TN = TN + 1
+            else:
+                FN = FN + 1
+        index = index + 1
+    # 精确率Precision
+    precison=float(TP)/(TP+FP)
+    # 召回率PreCall
+    precall=float(TP)/(TP+FN)
+    # F1_score
+    f1_score=2*precison*precall/(precison+precall)
+    # 特异度TNR
+    specificity=float(TN)/(TN+TP)
+    # G-means
+    G_means=precall*specificity**0.5
+    print("Precison Precall F1_score G_means")
+    print(str(precison)+" "+str(precall)+" "+str(f1_score)+" "+str(G_means))
+    precison_total += precison
+    precalls_total += precall
+    f1_score_total += f1_score
+    g_means_total += G_means
+
+print("avg:"+str(round(precison_total/epoch,3))+" "+str(round(precalls_total/epoch,3))
+                 +" "+str(round(f1_score_total/epoch,3))+" "+str(round(g_means_total/epoch,3)))
